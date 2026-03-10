@@ -1,0 +1,81 @@
+# Prefect deployment configuration (self-hosted, no cloud)
+# Docs: https://docs.prefect.io/latest/deploy/infrastructure-concepts/prefect-yaml/
+
+name: eodhd-collector
+prefect-version: ">=3.0.0"
+
+# -----------------------------------------------------------------------
+# Pull step — use local code (no remote storage needed)
+# -----------------------------------------------------------------------
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app
+
+# -----------------------------------------------------------------------
+# Deployments
+# -----------------------------------------------------------------------
+deployments:
+  # Full re-collection (all 651 stocks from scratch — use occasionally)
+  - name: daily-full
+    entrypoint: flows/daily_collection_flow.py:daily_collection_flow
+    description: "Full re-collection — all Syariah stocks from scratch (run manually or weekly)"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      stocks_file: config/syariah_stocks.txt
+      collect_price: true
+      collect_actions: true
+      intraday_days: 120
+      skip_intraday: false
+      skip_validation: true
+      update_mode: false
+      skip_duplicate_check: false
+    schedules:
+      # Optional: full re-collection every Sunday at 10:00 WIB
+      - cron: "0 3 * * 0"
+        timezone: "Asia/Jakarta"
+        active: false  # enable if you want weekly full refresh
+
+  # Daily incremental update — fetches only missing data since last run
+  # Example: if last data is Feb 2 and today is Feb 5, fetches Feb 3-5
+  - name: daily-update
+    entrypoint: flows/daily_collection_flow.py:update_collection_flow
+    description: "Daily incremental update — fetch missing data for all 651 stocks"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      stocks_file: config/syariah_stocks.txt
+      update_window: 7       # re-fetch last 7 days to catch corrections/adjustments
+      skip_intraday: false   # also update intraday data
+    schedules:
+      # Intraday collection — runs during IDX trading hours (WIB)
+      # 09:16, 10:16, 11:16, 14:16, 15:16, 16:16
+      - cron: "16 9,10,11,14,15,16 * * 1-5"
+        timezone: "Asia/Jakarta"
+        active: true
+      # 12:00 — before lunch break
+      - cron: "0 12 * * 1-5"
+        timezone: "Asia/Jakarta"
+        active: true
+      # 13:46 — after lunch break resumes
+      - cron: "46 13 * * 1-5"
+        timezone: "Asia/Jakarta"
+        active: true
+
+  # Test run (5 stocks only)
+  - name: test-run
+    entrypoint: flows/daily_collection_flow.py:daily_collection_flow
+    description: "Test run — 5 stocks only for validation"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      stocks_file: config/syariah_stocks.txt
+      collect_price: true
+      collect_actions: true
+      intraday_days: 30
+      skip_intraday: true
+      skip_validation: true
+      update_mode: false
+      skip_duplicate_check: true
+      limit: 5
+    schedules: []  # manual only
