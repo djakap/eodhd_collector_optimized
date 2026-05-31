@@ -108,20 +108,25 @@ def to_intraday_records(data: list, symbol: str, interval: str) -> list[tuple]:
 # ── Per-symbol backfill ───────────────────────────────────────────────────────
 
 def backfill_symbol(symbol: str, api: EODHDClient, db: QuestDBClient,
-                    dry_run: bool) -> int:
+                    dry_run: bool, eod_only: bool = False,
+                    intraday_only: bool = False) -> int:
     inserted = 0
 
-    for period in EOD_PERIODS:
-        try:
-            data = api.get_eod_data(symbol, period, from_date=EOD_FROM, to_date=EOD_TO)
-            records = to_eod_records(data or [], symbol, period)
-            if records and not dry_run:
-                db.insert_price_data(records)
-            inserted += len(records)
-            if records:
-                logger.debug(f"  {symbol} {period}: {len(records)} rows")
-        except Exception as e:
-            logger.warning(f"  {symbol} {period} error: {e}")
+    if not intraday_only:
+        for period in EOD_PERIODS:
+            try:
+                data = api.get_eod_data(symbol, period, from_date=EOD_FROM, to_date=EOD_TO)
+                records = to_eod_records(data or [], symbol, period)
+                if records and not dry_run:
+                    db.insert_price_data(records)
+                inserted += len(records)
+                if records:
+                    logger.debug(f"  {symbol} {period}: {len(records)} rows")
+            except Exception as e:
+                logger.warning(f"  {symbol} {period} error: {e}")
+
+    if eod_only:
+        return inserted
 
     for interval in INTRADAY_INTERVALS:
         try:
@@ -148,6 +153,10 @@ def main():
                         help="Fetch but do not write to QuestDB")
     parser.add_argument('--symbol', metavar='SYM',
                         help="Backfill a single symbol only (e.g. BBCA.JK)")
+    parser.add_argument('--eod-only', action='store_true',
+                        help="Skip intraday intervals (use when API returns 403 for intraday)")
+    parser.add_argument('--intraday-only', action='store_true',
+                        help="Skip EOD intervals (use when EOD was already backfilled)")
     parser.add_argument('--verbose', action='store_true',
                         help="Show per-interval debug output")
     args = parser.parse_args()
@@ -162,6 +171,10 @@ def main():
     print(f"Intraday UTC: 2024-11-01 → 2024-11-30")
     if args.dry_run:
         print("MODE        : DRY RUN (no writes)")
+    if args.eod_only:
+        print("INTERVALS   : EOD only (d, w, m) — intraday skipped")
+    if args.intraday_only:
+        print("INTERVALS   : Intraday only (5m,15m,30m,1h) — EOD skipped")
     print("=" * 60)
 
     db  = QuestDBClient()
@@ -182,7 +195,9 @@ def main():
 
         for i, symbol in enumerate(symbols, 1):
             try:
-                n = backfill_symbol(symbol, api, db, dry_run=args.dry_run)
+                n = backfill_symbol(symbol, api, db, dry_run=args.dry_run,
+                                    eod_only=args.eod_only,
+                                    intraday_only=args.intraday_only)
                 total_inserted += n
                 label = f"{n:>6} rows" if n else "  no new data"
                 print(f"[{i:3d}/{total}] {symbol:<12} {label}")
