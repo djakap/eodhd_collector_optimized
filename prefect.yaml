@@ -91,4 +91,4 @@ deployments:
       update_mode: false
       skip_duplicate_check: true
       limit: 5
-    schedules: []  # manual only
+    schedules: []  # manual onl

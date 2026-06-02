@@ -1,0 +1,98 @@
+services:
+  # -----------------------------------------------------------------------
+  # QuestDB — time-series database
+  # -----------------------------------------------------------------------
+  questdb:
+    image: questdb/questdb:7.3.10
+    container_name: questdb
+    restart: unless-stopped
+    ports:
+      - "8812:8812"   # PostgreSQL wire protocol
+      - "9001:9000"   # Web console
+      - "9009:9009"   # ILP (InfluxDB Line Protocol)
+    environment:
+      - QDB_CAIRO_MAX_UNCOMMITTED_ROWS=10000
+      - QDB_PG_CONNECTION_POOL_CAPACITY=10
+    volumes:
+      - questdb_data:/var/lib/questdb
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9000' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # -----------------------------------------------------------------------
+  # Prefect Server — orchestration UI + API (localhost:4200)
+  # -----------------------------------------------------------------------
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: prefect-server
+    restart: unless-stopped
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    environment:
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_UI_API_URL=http://localhost:4200/api
+    volumes:
+      - prefect_data:/root/.prefect
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:4200/api/health').raise_for_status()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # -----------------------------------------------------------------------
+  # Prefect Worker — runs the collection flows
+  # -----------------------------------------------------------------------
+  prefect-worker:
+    build: .
+    container_name: prefect-worker
+    restart: unless-stopped
+    depends_on:
+      questdb:
+        condition: service_healthy
+      prefect-server:
+        condition: service_healthy
+    environment:
+      # Prefect
+      - PREFECT_API_URL=http://prefect-server:4200/api
+      # EODHD API
+      - EODHD_API_KEY=${EODHD_API_KEY}
+      - EODHD_PLAN=${EODHD_PLAN:-all_world_extended}
+      # QuestDB — use Docker service name, not localhost
+      - QUESTDB_HOST=questdb
+      - QUESTDB_HTTP_PORT=9000
+      - QUESTDB_PG_PORT=8812
+      - QUESTDB_INFLUX_PORT=9009
+      - QUESTDB_USER=admin
+      - QUESTDB_PASSWORD=quest
+      - QUESTDB_DATABASE=qdb
+      # Logging
+      - LOG_LEVEL=INFO
+      - LOG_FILE=logs/eodhd_collector.log
+    command: >
+      bash -c "
+        echo 'Waiting for Prefect server...' &&
+        sleep 5 &&
+        echo 'Creating work pool...' &&
+        prefect work-pool create default-agent-pool --type process 2>/dev/null || true &&
+        echo 'Deploying flows...' &&
+        prefect deploy --all &&
+        echo 'Starting worker...' &&
+        prefect worker start --pool default-agent-pool
+      "
+    volumes:
+      - worker_logs:/app/logs
+      - questdb_data:/questdb-data:ro
+      - ./backups:/backup
+
+volumes:
+  questdb_data:
+    # Use existing volume if available, otherwise create new
+    name: quest-db_questdb_data
+    external: true
+  prefect_data:
+  worker_logs:
