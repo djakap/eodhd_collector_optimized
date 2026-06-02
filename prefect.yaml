@@ -62,6 +62,19 @@ deployments:
         timezone: "Asia/Jakarta"
         active: true
 
+  # Weekly QuestDB local backup — creates a tar.gz you can copy to another machine
+  - name: questdb-backup
+    entrypoint: flows/backup_flow.py:questdb_backup_flow
+    description: "Weekly QuestDB backup — consistent snapshot compressed to tar.gz in ./backups/"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      keep_local_backups: 3
+    schedules:
+      - cron: "30 16 * * 0"   # weekly every Sunday at 16:30 WIB
+        timezone: "Asia/Jakarta"
+        active: false          # enable when ready
+
   # Test run (5 stocks only)
   - name: test-run
     entrypoint: flows/daily_collection_flow.py:daily_collection_flow

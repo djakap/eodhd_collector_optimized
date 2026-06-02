@@ -1,4 +1,4 @@
-can services:
+services:
   # -----------------------------------------------------------------------
   # QuestDB — time-series database
   # -----------------------------------------------------------------------
@@ -10,11 +10,11 @@ can services:
       - "8812:8812"   # PostgreSQL wire protocol
       - "9001:9000"   # Web console
       - "9009:9009"   # ILP (InfluxDB Line Protocol)
-    volumes:
-      - questdb_data:/var/lib/questdb
     environment:
       - QDB_CAIRO_MAX_UNCOMMITTED_ROWS=10000
       - QDB_PG_CONNECTION_POOL_CAPACITY=10
+    volumes:
+      - questdb_data:/var/lib/questdb
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9000' || exit 1"]
       interval: 10s
@@ -86,6 +86,8 @@ can services:
       "
     volumes:
       - worker_logs:/app/logs
+      - questdb_data:/questdb-data:ro
+      - ./backups:/backup
 
 volumes:
   questdb_data:
