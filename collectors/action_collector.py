@@ -62,23 +62,23 @@ class ActionCollector:
             if item.get('paymentDate'):
                 try:
                     payment_date = datetime.strptime(item['paymentDate'], '%Y-%m-%d').date()
-                except:
+                except (ValueError, TypeError):
                     pass
-            
+
             # Parse record date
             record_date = None
             if item.get('recordDate'):
                 try:
                     record_date = datetime.strptime(item['recordDate'], '%Y-%m-%d').date()
-                except:
+                except (ValueError, TypeError):
                     pass
-            
+
             # Parse declaration date
             declaration_date = None
             if item.get('declarationDate'):
                 try:
                     declaration_date = datetime.strptime(item['declarationDate'], '%Y-%m-%d').date()
-                except:
+                except (ValueError, TypeError):
                     pass
             
             records.append({
@@ -140,7 +140,7 @@ class ActionCollector:
                 try:
                     split_from = int(parts[0])
                     split_to = int(parts[1])
-                except:
+                except (ValueError, TypeError):
                     pass
             
             records.append({

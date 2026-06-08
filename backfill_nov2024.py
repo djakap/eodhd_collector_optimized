@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import argparse
 from datetime import datetime, timezone
 import logging
+import time
 import pandas as pd
 
 from api.eodhd_client import EODHDClient
@@ -44,9 +45,11 @@ logger = logging.getLogger(__name__)
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_all_symbols(db_client: QuestDBClient) -> list[str]:
+    # Use metadata table — avoids a full scan of the 19 M-row stock_data table
+    # which crashes QuestDB via GROUP BY / DISTINCT on that size.
     db_client.ensure_connection()
     db_client.cursor.execute(
-        "SELECT DISTINCT symbol FROM eodhd_stock_data ORDER BY symbol"
+        "SELECT DISTINCT symbol FROM eodhd_stock_metadata WHERE interval = 'd' ORDER BY symbol"
     )
     return [row[0] for row in db_client.cursor.fetchall()]
 
@@ -128,6 +131,8 @@ def backfill_symbol(symbol: str, api: EODHDClient, db: QuestDBClient,
     if eod_only:
         return inserted
 
+    CHUNK = 300   # rows per SQL INSERT batch — keeps QuestDB partition I/O bounded
+
     for interval in INTRADAY_INTERVALS:
         try:
             data = api.get_intraday_data(symbol, interval,
@@ -135,7 +140,13 @@ def backfill_symbol(symbol: str, api: EODHDClient, db: QuestDBClient,
                                          to_timestamp=INTRADAY_TO_TS)
             records = to_intraday_records(data or [], symbol, interval)
             if records and not dry_run:
-                db.insert_price_data(records)
+                # Insert in small chunks with a brief pause to avoid
+                # overwhelming QuestDB with partition writes across 20 daily partitions
+                for start in range(0, len(records), CHUNK):
+                    chunk = records[start:start + CHUNK]
+                    db.insert_price_data(chunk)
+                    if start + CHUNK < len(records):
+                        time.sleep(0.5)
             inserted += len(records)
             if records:
                 logger.debug(f"  {symbol} {interval}: {len(records)} rows")
@@ -177,7 +188,9 @@ def main():
         print("INTERVALS   : Intraday only (5m,15m,30m,1h) — EOD skipped")
     print("=" * 60)
 
-    db  = QuestDBClient()
+    # use_ilp=False: ILP (fast path) crashes QuestDB under memory pressure
+    # with an already large table; SQL insert is slower but stable.
+    db  = QuestDBClient(use_ilp=False)
     db.connect()
     api = EODHDClient()
 
@@ -193,6 +206,19 @@ def main():
         total_inserted = 0
         failed = []
 
+        def wait_for_db(max_wait: int = 60) -> bool:
+            """Wait up to max_wait seconds for QuestDB to come back."""
+            import psycopg2
+            for _ in range(max_wait // 3):
+                try:
+                    c = psycopg2.connect(host="localhost", port=8812,
+                                         user="admin", password="quest", database="qdb")
+                    c.close()
+                    return True
+                except Exception:
+                    time.sleep(3)
+            return False
+
         for i, symbol in enumerate(symbols, 1):
             try:
                 n = backfill_symbol(symbol, api, db, dry_run=args.dry_run,
@@ -201,9 +227,29 @@ def main():
                 total_inserted += n
                 label = f"{n:>6} rows" if n else "  no new data"
                 print(f"[{i:3d}/{total}] {symbol:<12} {label}")
+                time.sleep(0.3)  # brief pause between symbols — reduces DB pressure
             except Exception as e:
-                failed.append(symbol)
-                print(f"[{i:3d}/{total}] {symbol:<12}  ERROR: {e}")
+                err_str = str(e)
+                if "Connection refused" in err_str or "server closed" in err_str:
+                    print(f"[{i:3d}/{total}] {symbol:<12}  QuestDB down — waiting...")
+                    if wait_for_db():
+                        db.connect()
+                        print(f"  QuestDB recovered — retrying {symbol}")
+                        try:
+                            n = backfill_symbol(symbol, api, db, dry_run=args.dry_run,
+                                                eod_only=args.eod_only,
+                                                intraday_only=args.intraday_only)
+                            total_inserted += n
+                            print(f"[{i:3d}/{total}] {symbol:<12} {n:>6} rows (retry ok)")
+                        except Exception as e2:
+                            failed.append(symbol)
+                            print(f"[{i:3d}/{total}] {symbol:<12}  RETRY FAILED: {e2}")
+                    else:
+                        failed.append(symbol)
+                        print(f"[{i:3d}/{total}] {symbol:<12}  DB did not recover — skipped")
+                else:
+                    failed.append(symbol)
+                    print(f"[{i:3d}/{total}] {symbol:<12}  ERROR: {e}")
 
         print(f"\n{'DRY RUN — ' if args.dry_run else ''}Done.")
         print(f"Total rows {'found' if args.dry_run else 'inserted'}: {total_inserted}")

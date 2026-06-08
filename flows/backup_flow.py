@@ -62,12 +62,16 @@ def cleanup_old_backups(keep: int):
 
 
 @flow(name="questdb-local-backup", log_prints=True)
-def questdb_backup_flow(keep_local_backups: int = 3):
+def questdb_backup_flow(keep_local_backups: int = 5):
     logger = get_run_logger()
     backup_name = f"questdb_backup_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     logger.info(f"Starting backup: {backup_name}")
 
     archive_path = create_backup(backup_name)
-    cleanup_old_backups(keep_local_backups)
+
+    if archive_path.exists() and archive_path.stat().st_size > 0:
+        cleanup_old_backups(keep_local_backups)
+    else:
+        logger.warning(f"Backup verification failed ({archive_path.name}) — skipping cleanup to preserve existing backups")
 
     logger.info(f"Done — copy to laptop: scp <host>:{archive_path} .")

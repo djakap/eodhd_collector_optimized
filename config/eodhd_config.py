@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API Configuration
-EODHD_API_KEY = os.getenv('EODHD_API_KEY', '6976bf4be7ab42.10938432')
+EODHD_API_KEY = os.getenv('EODHD_API_KEY', '')
 EODHD_BASE_URL = 'https://eodhistoricaldata.com/api'
 
 # API Endpoints

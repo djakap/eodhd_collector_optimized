@@ -95,16 +95,6 @@ class PriceCollector:
                     # Incremental update: fetch from (last_date - update_window) to today
                     from_date = last_date - timedelta(days=self.update_window)
                     
-                    # Try to delete existing records in update window
-                    # QuestDB has limited DELETE support, so if it fails,
-                    # fall back to duplicate detection (skip existing records)
-                    try:
-                        self.db_client.delete_records_after_date(symbol, period, from_date)
-                        use_duplicate_detection = False  # deleted, no need for dedup
-                    except Exception as e:
-                        logger.warning(f"Delete failed for {symbol}/{period} (QuestDB limitation), using duplicate detection: {e}")
-                        use_duplicate_detection = True  # fall back to dedup
-                    
                     logger.info(f"Update mode: fetching from {from_date.date()} (last: {last_date.date()}, window: {self.update_window} days)")
                 # else: no data yet - full collection
             elif days:
@@ -267,16 +257,6 @@ class PriceCollector:
                     from_datetime = last_datetime - timedelta(days=self.update_window)
                     from_ts = int(from_datetime.timestamp())
                     to_ts = int(datetime.now().timestamp())
-                    
-                    # Try to delete existing records in update window
-                    # QuestDB has limited DELETE support, so if it fails,
-                    # fall back to duplicate detection
-                    try:
-                        self.db_client.delete_records_after_date(symbol, interval, from_datetime)
-                        use_duplicate_detection = False  # deleted, no need for dedup
-                    except Exception:
-                        use_duplicate_detection = True  # fall back to dedup
-                    use_duplicate_detection = False
                     
                     logger.info(f"Update mode: fetching from {from_datetime} (last: {last_datetime}, window: {self.update_window} days)")
                 else:
