@@ -23,7 +23,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional
 
 from prefect import flow, task, get_run_logger
@@ -437,6 +437,190 @@ def screener_refresh_flow(
     QuestDBClient.close_pool()
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Gap Check & Fill Flow
+# ---------------------------------------------------------------------------
+
+def _last_trading_day() -> date:
+    """Return the most recent IDX trading weekday relative to now."""
+    today = datetime.now().date()
+    weekday = today.weekday()   # 0=Mon … 6=Sun
+    if weekday == 5:            # Saturday → Friday
+        return today - timedelta(days=1)
+    if weekday == 6:            # Sunday → Friday
+        return today - timedelta(days=2)
+    return today
+
+
+@task(name="Detect stale symbols", retries=1, retry_delay_seconds=30)
+def detect_stale_symbols(expected_date: date, max_gap_days: int) -> Dict:
+    """
+    Query eodhd_stock_metadata to find symbols whose EOD daily data
+    is more than max_gap_days behind expected_date.
+
+    Returns a dict with:
+        stale        – list of symbol strings that need updating
+        up_to_date   – count of symbols that are current
+        no_metadata  – list of symbols with no metadata record
+        expected     – the expected_date used
+    """
+    logger = get_run_logger()
+    db = QuestDBClient(use_ilp=False)
+    db.connect()
+    try:
+        db.ensure_connection()
+        db.cursor.execute("""
+            SELECT symbol, data_end, last_updated
+            FROM eodhd_stock_metadata
+            WHERE interval = 'd'
+            ORDER BY symbol, last_updated DESC
+        """)
+        rows = db.cursor.fetchall()
+
+        # Keep only the most recent metadata row per symbol
+        seen: Dict[str, date] = {}
+        for sym, data_end, _ in rows:
+            if sym not in seen:
+                seen[sym] = data_end.date() if data_end else None
+
+        cutoff = expected_date - timedelta(days=max_gap_days)
+        stale, no_meta = [], []
+        up_to_date = 0
+
+        for sym, last_date in seen.items():
+            if last_date is None:
+                no_meta.append(sym)
+            elif last_date < cutoff:
+                stale.append(sym)
+            else:
+                up_to_date += 1
+
+        logger.info(
+            f"Gap check (expected ≥ {cutoff}): "
+            f"{len(stale)} stale, {up_to_date} up-to-date, "
+            f"{len(no_meta)} no-metadata"
+        )
+        if stale:
+            logger.info(f"Stale symbols: {stale[:20]}{'…' if len(stale) > 20 else ''}")
+
+        return {
+            "stale": stale,
+            "up_to_date": up_to_date,
+            "no_metadata": no_meta,
+            "expected": str(expected_date),
+        }
+    finally:
+        db.close()
+
+
+@flow(
+    name="Gap Check Fill",
+    description="Daily safety net: detect EOD gaps vs expected trading day, fill stale symbols automatically",
+    retries=0,
+    timeout_seconds=10800,  # 3 hour max
+)
+def gap_check_flow(
+    stocks_file: str = "config/syariah_stocks.txt",
+    max_gap_days: int = 1,       # flag as stale if > N days behind expected
+    lookback_days: int = 7,      # update_window when filling (re-fetch last N days)
+    skip_intraday: bool = False,  # also fill intraday gaps
+    limit: Optional[int] = None,
+):
+    """
+    Runs once daily after market close (default: 19:00 WIB Mon-Sat).
+
+    Logic:
+    1. Determine the expected last trading day (last weekday).
+    2. Query metadata — find symbols whose data_end is > max_gap_days behind.
+    3. Fill gaps for stale symbols using update_mode (lookback_days window).
+    4. Log a summary so it's visible in Prefect UI.
+
+    This acts as a safety net for the daily-update flow: if any symbol
+    was missed (worker restart, API timeout, etc.) it will be caught here.
+    """
+    logger = get_run_logger()
+    setup_logging()
+
+    expected = _last_trading_day()
+    logger.info(f"Gap check — expected latest trading day: {expected}")
+
+    # ── 1. Detect ──────────────────────────────────────────────────────────
+    result = detect_stale_symbols(expected, max_gap_days)
+    stale: List[str] = result["stale"]
+
+    if not stale:
+        logger.info(f"✅ All symbols up-to-date (≥ {expected}). Nothing to fill.")
+        return {
+            "stale_found": 0,
+            "filled": 0,
+            "expected": result["expected"],
+        }
+
+    logger.info(f"⚠️  {len(stale)} symbol(s) have gaps — filling with update_window={lookback_days}d …")
+
+    # ── 2. Fill gaps ────────────────────────────────────────────────────────
+    # Re-use the existing collect_single_stock task (retries=3, batched)
+    symbols_to_fill = stale[:limit] if limit else stale
+    BATCH_SIZE = 4
+    total_batches = (len(symbols_to_fill) + BATCH_SIZE - 1) // BATCH_SIZE
+    all_stats: List[Dict] = []
+
+    for batch_idx in range(total_batches):
+        batch = symbols_to_fill[batch_idx * BATCH_SIZE:(batch_idx + 1) * BATCH_SIZE]
+        logger.info(f"Batch {batch_idx + 1}/{total_batches}: {batch}")
+
+        futures = [
+            collect_single_stock.submit(
+                symbol=sym,
+                collect_price=True,
+                collect_actions=False,  # actions don't need daily updates
+                skip_intraday=skip_intraday,
+                skip_validation=True,
+                update_mode=True,
+                update_window=lookback_days,
+                skip_duplicate_check=True,
+            )
+            for sym in batch
+        ]
+
+        for j, future in enumerate(futures):
+            try:
+                all_stats.append(future.result())
+            except Exception as e:
+                sym = batch[j]
+                logger.error(f"{sym}: failed after retries — {e}")
+                all_stats.append({"symbol": sym, "success": False, "error": str(e)})
+
+    # ── 3. Summary ──────────────────────────────────────────────────────────
+    successful = sum(1 for s in all_stats if s.get("success"))
+    total_records = sum(
+        s["price_stats"]["total_records"]
+        for s in all_stats
+        if s.get("success") and s.get("price_stats")
+    )
+    logger.info(
+        f"\n{'='*60}\n"
+        f"GAP CHECK COMPLETE\n"
+        f"{'='*60}\n"
+        f"  Expected latest  : {expected}\n"
+        f"  Stale found      : {len(stale)}\n"
+        f"  ✅ Filled        : {successful}\n"
+        f"  ❌ Failed        : {len(all_stats) - successful}\n"
+        f"  📈 Rows inserted : {total_records:,}\n"
+        f"{'='*60}"
+    )
+
+    QuestDBClient.close_pool()
+
+    return {
+        "stale_found": len(stale),
+        "filled": successful,
+        "failed": len(all_stats) - successful,
+        "rows_inserted": total_records,
+        "expected": result["expected"],
+    }
 
 
 # ---------------------------------------------------------------------------

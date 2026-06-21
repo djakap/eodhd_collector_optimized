@@ -289,15 +289,31 @@ class QuestDBClient:
         """
         try:
             self.ensure_connection()
-            # QuestDB doesn't support DELETE, so we just INSERT
-            # Duplicate records will be handled by querying latest timestamp
             now = datetime.now()
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # Check if we already have a row for today (designated timestamp = last_updated)
             self.cursor.execute(f"""
-                INSERT INTO {TABLE_STOCK_METADATA}
-                (symbol, interval, last_updated, total_records, data_start, data_end, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (symbol, interval, now, total_records, data_start, data_end, now))
-            
+                SELECT last_updated FROM {TABLE_STOCK_METADATA}
+                WHERE symbol = %s AND interval = %s AND last_updated >= %s
+                ORDER BY last_updated DESC LIMIT 1
+            """, (symbol, interval, today_start))
+            existing = self.cursor.fetchone()
+
+            if existing:
+                # UPDATE the existing row in today's partition to avoid accumulation
+                self.cursor.execute(f"""
+                    UPDATE {TABLE_STOCK_METADATA}
+                    SET total_records = %s, data_start = %s, data_end = %s
+                    WHERE symbol = %s AND interval = %s AND last_updated = %s
+                """, (total_records, data_start, data_end, symbol, interval, existing[0]))
+            else:
+                self.cursor.execute(f"""
+                    INSERT INTO {TABLE_STOCK_METADATA}
+                    (symbol, interval, last_updated, total_records, data_start, data_end, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (symbol, interval, now, total_records, data_start, data_end, now))
+
             logger.debug(f"Updated metadata for {symbol}/{interval}: {total_records} records, latest: {data_end}")
         except Exception as e:
             # Don't raise - metadata tracking is optional

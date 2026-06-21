@@ -90,6 +90,9 @@ services:
       - worker_logs:/app/logs
       - questdb_data:/questdb-data:ro
       - ./backups:/backup
+      - ./flows:/app/flows          # live-reload flow code without rebuild
+      - ./collectors:/app/collectors
+      - ./prefect.yaml:/app/prefect.yaml
 
 volumes:
   questdb_data:

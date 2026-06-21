@@ -75,6 +75,23 @@ deployments:
         timezone: "Asia/Jakarta"
         active: false          # enable when ready
 
+  # Daily gap check & auto-fill — safety net after market close
+  - name: gap-check
+    entrypoint: flows/daily_collection_flow.py:gap_check_flow
+    description: "Daily safety net: detect missing EOD data vs expected trading day, fill gaps automatically"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      stocks_file: config/syariah_stocks.txt
+      max_gap_days: 1       # flag stale if > 1 day behind expected
+      lookback_days: 7      # re-fetch last 7 days when filling
+      skip_intraday: false  # also fill intraday gaps
+    schedules:
+      # Run Mon-Sat at 19:00 WIB (12:00 UTC) — after IDX close + EODHD processing delay
+      - cron: "0 12 * * 1-6"
+        timezone: "Asia/Jakarta"
+        active: true
+
   # Test run (5 stocks only)
   - name: test-run
     entrypoint: flows/daily_collection_flow.py:daily_collection_flow
@@ -91,4 +108,24 @@ deployments:
       update_mode: false
       skip_duplicate_check: true
       limit: 5
-    schedules: []  # manual onl
+    schedules: []  # manual only
+
+  # Weekly data quality check — OHLC validation, metadata cleanup, new symbols, partition monitor
+  - name: data-quality
+    entrypoint: flows/data_quality_flow.py:data_quality_flow
+    description: "Weekly data quality: OHLC anomalies, metadata dedup, new symbol detection, partition sizing"
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      stocks_file: config/syariah_stocks.txt
+      lookback_days: 7
+      spike_threshold: 0.5
+      warn_partition_mb: 200
+      run_cleanup: true
+      run_ohlc: true
+      run_symbols: true
+      run_partitions: true
+    schedules:
+      - cron: "0 9 * * 0"   # every Sunday at 09:00 WIB (02:00 UTC)
+        timezone: "Asia/Jakarta"
+        active: true
