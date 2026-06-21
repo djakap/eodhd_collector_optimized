@@ -63,8 +63,13 @@ class PriceCollector:
         logger.info(f"Pre-loading complete: {loaded} interval(s) with existing data")
     
     def close(self):
-        """Close database connection"""
-        self.db_client.close()
+        """Close database connection and HTTP client"""
+        try:
+            self.db_client.close()
+        finally:
+            # Close the httpx client too — otherwise its connection pool
+            # leaks until GC runs, piling up in long-lived worker processes
+            self.api_client.close()
     
     def collect_eod_data(self, symbol: str, days: int = None) -> int:
         """

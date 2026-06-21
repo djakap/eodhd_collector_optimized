@@ -23,8 +23,12 @@ class MetadataCollector:
         self.db_client.connect()
     
     def close(self):
-        """Close database connection"""
-        self.db_client.close()
+        """Close database connection and HTTP client"""
+        try:
+            self.db_client.close()
+        finally:
+            # Close the httpx client too — otherwise its connection pool leaks
+            self.api_client.close()
     
     def collect_metadata(self, symbol: str) -> Optional[dict]:
         """

@@ -468,8 +468,12 @@ def main():
     with open(stats_file, 'w') as f:
         for stat in stats:
             f.write(f"{stat}\n")
-    
+
     logger.info(f"Stats saved to: {stats_file}")
+
+    # Release the shared QuestDB connection pool before exit
+    from db.questdb_client import QuestDBClient
+    QuestDBClient.close_pool()
 
 
 if __name__ == "__main__":

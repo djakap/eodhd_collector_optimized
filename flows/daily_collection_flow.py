@@ -32,6 +32,7 @@ from prefect.cache_policies import INPUTS
 
 from collectors.price_collector import PriceCollector
 from collectors.action_collector import ActionCollector
+from db.questdb_client import QuestDBClient
 from config.eodhd_config import INTRADAY_INTERVALS
 from utils.logger import setup_logging
 from utils.aggregate_4h import aggregate_4h_candles
@@ -319,6 +320,10 @@ def daily_collection_flow(
         except Exception as e:
             logger.error(f"4h aggregation failed: {e}")
 
+    # Release the shared QuestDB connection pool so idle connections aren't
+    # held open after the flow finishes (worker process is long-lived)
+    QuestDBClient.close_pool()
+
     return {
         "total_stocks": len(stocks),
         "successful": sum(1 for s in all_stats if s.get("success")),
@@ -427,7 +432,10 @@ def screener_refresh_flow(
         f"{result['failed']} failed, "
         f"{result['elapsed_s']}s"
     )
-    
+
+    # Release the shared QuestDB connection pool (worker is long-lived)
+    QuestDBClient.close_pool()
+
     return result
 
 

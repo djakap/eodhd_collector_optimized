@@ -128,6 +128,24 @@ class QuestDBClient:
                     raise last_error
 
     @classmethod
+    def close_pool(cls):
+        """Close all pooled connections and drop the pool.
+
+        Call this once at the very end of a run (e.g. after a flow finishes).
+        The pool is class-level/shared and otherwise keeps up to maxconn
+        connections open for the lifetime of the process — which leaks
+        memory in long-lived workers that run many flows back-to-back."""
+        with cls._pool_lock:
+            if cls._connection_pool is not None:
+                try:
+                    cls._connection_pool.closeall()
+                    logger.info("Closed QuestDB connection pool")
+                except Exception as e:
+                    logger.warning(f"Error closing connection pool: {e}")
+                finally:
+                    cls._connection_pool = None
+
+    @classmethod
     def _reset_pool(cls):
         """Reset the connection pool when QuestDB becomes unreachable.
         Next connect() call will recreate the pool with fresh connections."""
