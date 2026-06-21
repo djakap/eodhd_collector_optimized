@@ -110,6 +110,19 @@ deployments:
       limit: 5
     schedules: []  # manual only
 
+  # Copy latest backup from container to host filesystem (runs on HOST worker, not in Docker)
+  - name: backup-copy
+    entrypoint: flows/backup_copy_flow.py:backup_copy_flow
+    description: "Copy latest QuestDB backup from container /backup/ to host backups/ folder"
+    work_pool:
+      name: host-pool
+    pull:
+      - prefect.deployments.steps.set_working_directory:
+          directory: /home/djp/eodhd_collector_optimized
+    parameters:
+      latest_only: true
+    schedules: []  # manual only — trigger from UI after running questdb-backup
+
   # Weekly data quality check — OHLC validation, metadata cleanup, new symbols, partition monitor
   - name: data-quality
     entrypoint: flows/data_quality_flow.py:data_quality_flow
