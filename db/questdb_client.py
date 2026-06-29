@@ -247,32 +247,23 @@ class QuestDBClient:
     
     def delete_records_after_date(self, symbol: str, interval: str, from_date: datetime):
         """
-        Delete records after a certain date (for update mode with correction window)
-        
+        No-op kept for backward compatibility.
+
+        QuestDB does not support row-level DELETE (the old ``DELETE FROM`` here
+        always failed with "unexpected token [FROM]"). The eodhd_stock_data table
+        has deduplication enabled with UPSERT KEYS (symbol, interval, timestamp),
+        so re-inserting bars in the correction window overwrites the existing rows
+        in place. An explicit delete is therefore unnecessary.
+
         Args:
             symbol: Stock symbol
             interval: Data interval
-            from_date: Delete records from this date onwards
+            from_date: Start of the correction window (informational only)
         """
-        try:
-            self.ensure_connection()
-            self.cursor.execute(f"""
-                DELETE FROM {TABLE_STOCK_DATA}
-                WHERE symbol = %s 
-                AND interval = %s 
-                AND timestamp >= %s
-            """, (symbol, interval, from_date))
-            deleted_count = self.cursor.rowcount
-            logger.debug(f"Deleted {deleted_count} records for {symbol}/{interval} from {from_date}")
-        except Exception as e:
-            logger.warning(f"Failed to delete records for {symbol}/{interval}: {e}")
-            # Reconnect so subsequent queries work (QuestDB may leave connection in bad state)
-            try:
-                self.close()
-                self.connect()
-            except Exception:
-                pass
-            raise
+        logger.debug(
+            f"Skipping delete for {symbol}/{interval} from {from_date}: "
+            f"QuestDB DEDUP (symbol, interval, timestamp) overwrites rows on re-insert"
+        )
     
     def upsert_stock_metadata(self, symbol: str, interval: str, 
                              data_start: datetime, data_end: datetime, 
