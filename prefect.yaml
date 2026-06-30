@@ -149,7 +149,7 @@ deployments:
       run_symbols: true
       run_partitions: true
     schedules:
-      - cron: "0 8 * * 6"   # Saturday 08:00 WIB (batched with gap-check)
+      - cron: "30 8 * * 6"   # Saturday 08:30 WIB — AFTER gap-check (08:00) fills the week's gaps
         timezone: "Asia/Jakarta"
         active: true
 
