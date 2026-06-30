@@ -43,6 +43,12 @@ deployments:
     description: "Daily incremental update — fetch missing data for all 651 stocks"
     work_pool:
       name: default-agent-pool
+    # On a laptop that is sometimes off: when it wakes, run ONE catch-up run and
+    # auto-cancel the piled-up late runs instead of executing them all. The flow
+    # is incremental (update_mode), so a single run catches everything up.
+    concurrency_limit:
+      limit: 1
+      collision_strategy: CANCEL_NEW
     parameters:
       stocks_file: config/syariah_stocks.txt
       update_window: 7       # re-fetch last 7 days to catch corrections/adjustments
@@ -81,6 +87,10 @@ deployments:
     description: "Daily safety net: detect missing EOD data vs expected trading day, fill gaps automatically"
     work_pool:
       name: default-agent-pool
+    # Same as daily-update: avoid piled-up late runs when the laptop wakes.
+    concurrency_limit:
+      limit: 1
+      collision_strategy: CANCEL_NEW
     parameters:
       stocks_file: config/syariah_stocks.txt
       max_gap_days: 1       # flag stale if > 1 day behind expected
