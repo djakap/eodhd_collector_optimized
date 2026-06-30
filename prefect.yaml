@@ -97,10 +97,8 @@ deployments:
       lookback_days: 7      # re-fetch last 7 days when filling
       skip_intraday: false  # also fill intraday gaps
     schedules:
-      # Run Mon-Sat at 20:00 WIB — after IDX close + EODHD processing delay.
-      # (was "0 12" = 12:00 WIB, which collided with daily-update and ran
-      #  mid-session before EOD data was final.)
-      - cron: "0 20 * * 1-6"
+      # Weekly on Saturday 08:00 WIB (market closed weekends; fills the week's gaps).
+      - cron: "0 8 * * 6"
         timezone: "Asia/Jakarta"
         active: true
 
@@ -151,7 +149,7 @@ deployments:
       run_symbols: true
       run_partitions: true
     schedules:
-      - cron: "0 9 * * 0"   # every Sunday at 09:00 WIB (02:00 UTC)
+      - cron: "0 8 * * 6"   # Saturday 08:00 WIB (batched with gap-check)
         timezone: "Asia/Jakarta"
         active: true
 
