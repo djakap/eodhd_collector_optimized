@@ -13,6 +13,7 @@ COPY config/ config/
 COPY db/ db/
 COPY flows/ flows/
 COPY utils/ utils/
+COPY scripts/ scripts/
 COPY main_ultrafast.py .
 COPY collect_metadata.py .
 COPY prefect.yaml .
