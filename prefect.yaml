@@ -97,7 +97,11 @@ deployments:
       lookback_days: 7      # re-fetch last 7 days when filling
       skip_intraday: false  # also fill intraday gaps
     schedules:
-      # Weekly on Saturday 08:00 WIB (market closed weekends; fills the week's gaps).
+      # Weekday daily gap-fill at 20:00 WIB — after IDX close.
+      - cron: "0 20 * * 1-5"
+        timezone: "Asia/Jakarta"
+        active: true
+      # Saturday 08:00 WIB weekly run (runs before data-quality at 08:30).
       - cron: "0 8 * * 6"
         timezone: "Asia/Jakarta"
         active: true
