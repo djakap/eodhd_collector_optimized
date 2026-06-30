@@ -19,6 +19,11 @@ EARNINGS_CALENDAR_ENDPOINT = '/calendar/earnings'
 IPO_CALENDAR_ENDPOINT = '/calendar/ipos'
 SPLITS_CALENDAR_ENDPOINT = '/calendar/splits'
 
+# Bulk API — exchange-wide last-day EOD/dividends/splits in ONE request (costs 100 API calls).
+# Replaces per-symbol EOD/dividend/split fetching for daily updates (far cheaper).
+BULK_ENDPOINT = '/eod-bulk-last-day/{exchange}'
+EXCHANGE_CODE = 'JK'  # Jakarta / IDX — VERIFY with a test bulk call before relying on it
+
 # Rate Limiting (All World Extended plan)
 REQUESTS_PER_SECOND = 10
 REQUESTS_PER_MINUTE = 600

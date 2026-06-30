@@ -154,3 +154,24 @@ deployments:
       - cron: "0 9 * * 0"   # every Sunday at 09:00 WIB (02:00 UTC)
         timezone: "Asia/Jakarta"
         active: true
+
+  # Bulk last-day EOD/dividends/splits for the WHOLE exchange (1 request = 100 calls each,
+  # vs ~651 per-symbol). INACTIVE until the bulk endpoint + exchange code are verified
+  # after quota reset (run scripts/test_bulk.py). Activate, then drop EOD/actions from
+  # daily-update so the savings materialise.
+  - name: bulk-eod
+    entrypoint: flows/daily_collection_flow.py:bulk_eod_flow
+    description: "Bulk last-day EOD/div/splits for whole exchange (100 calls vs per-symbol)"
+    work_pool:
+      name: default-agent-pool
+    concurrency_limit:
+      limit: 1
+      collision_strategy: CANCEL_NEW
+    parameters:
+      exchange: "JK"
+      collect_eod: true
+      collect_actions: true
+    schedules:
+      - cron: "30 20 * * 1-6"   # 20:30 WIB Mon-Sat — after close + after gap-check (20:00)
+        timezone: "Asia/Jakarta"
+        active: false           # ACTIVATE after verifying bulk works (post quota reset)

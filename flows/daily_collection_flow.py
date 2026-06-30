@@ -367,6 +367,40 @@ def update_collection_flow(
 
 
 @flow(
+    name="Bulk EOD Collection",
+    description="Exchange-wide last-day EOD/dividends/splits via Bulk API (1 request = 100 calls)",
+    retries=1,
+    timeout_seconds=600,
+)
+def bulk_eod_flow(exchange: str = "JK", date: Optional[str] = None,
+                  collect_eod: bool = True, collect_actions: bool = True):
+    """
+    Collect last-day EOD + dividends + splits for an entire exchange via the Bulk API.
+    Each bulk request costs 100 API calls but covers all symbols, replacing per-symbol
+    EOD/div/split fetching. INACTIVE until verified — see scripts/test_bulk.py.
+    """
+    from collectors.bulk_collector import BulkCollector
+
+    logger = get_run_logger()
+    setup_logging()
+    logger.info(f"📦 BULK collection for {exchange} (date={date or 'last trading day'})")
+
+    bc = BulkCollector(exchange=exchange)
+    stats = {}
+    try:
+        if collect_eod:
+            stats['eod'] = bc.collect_eod(date)
+        if collect_actions:
+            stats['dividends'] = bc.collect_dividends(date)
+            stats['splits'] = bc.collect_splits(date)
+    finally:
+        bc.close()
+
+    logger.info(f"✅ Bulk done: {stats}")
+    return stats
+
+
+@flow(
     name="Screener Refresh",
     description="Smart refresh — only fetch stale tickers to keep QuestDB fresh for screener",
     retries=0,

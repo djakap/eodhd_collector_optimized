@@ -20,6 +20,8 @@ from config.eodhd_config import (
     DIVIDENDS_ENDPOINT,
     SPLITS_ENDPOINT,
     EARNINGS_CALENDAR_ENDPOINT,
+    BULK_ENDPOINT,
+    EXCHANGE_CODE,
     REQUEST_DELAY,
     MAX_RETRIES,
     RETRY_DELAY
@@ -116,7 +118,32 @@ class EODHDClient:
         
         logger.info(f"Fetching EOD data for {symbol} (period={period})")
         return self._make_request(url, params)
-    
+
+    def get_bulk_eod(self, exchange: str = EXCHANGE_CODE, date: Optional[str] = None,
+                     action_type: Optional[str] = None) -> Optional[List[Dict]]:
+        """
+        Fetch last-day data for an ENTIRE exchange in one request (costs 100 API calls).
+
+        Replaces per-symbol EOD/dividend/split fetching for daily updates.
+
+        Args:
+            exchange: Exchange code (e.g. 'JK' for Jakarta/IDX)
+            date: 'YYYY-MM-DD' (default: last trading day)
+            action_type: None -> EOD prices; 'dividends' or 'splits' for corporate actions
+
+        Returns:
+            List of dicts (one per ticker). EOD items carry code/date/open/high/low/
+            close/adjusted_close/volume; the 'code' field includes the exchange suffix.
+        """
+        url = f"{self.base_url}{BULK_ENDPOINT.format(exchange=exchange)}"
+        params = {}
+        if date:
+            params['date'] = date
+        if action_type:
+            params['type'] = action_type
+        logger.info(f"Fetching BULK {action_type or 'eod'} for {exchange} (date={date or 'last'})")
+        return self._make_request(url, params)
+
     def get_intraday_data(self, symbol: str, interval: str = '5m',
                           from_timestamp: Optional[int] = None,
                           to_timestamp: Optional[int] = None) -> Optional[List[Dict]]:
