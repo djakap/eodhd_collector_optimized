@@ -34,7 +34,7 @@ EXCHANGE_SUFFIX = {
 }
 
 # Data Collection Settings
-INTRADAY_INTERVALS = ['5m', '15m', '30m', '1h']  # Skip 1m (not available for IDX)
+INTRADAY_INTERVALS = ['15m', '1h']  # 5m/30m dropped (unused) to cut API cost; 4h derived from 1h via utils/aggregate_4h
 EOD_PERIODS = ['d', 'w', 'm']  # Daily, Weekly, Monthly
 
 # Historical Data Limits
