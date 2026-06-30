@@ -43,8 +43,10 @@ class EODHDClient:
                 max_keepalive_connections=10
             ),
             timeout=httpx.Timeout(30.0),
-            # Retry configuration
-            transport=httpx.HTTPTransport(retries=MAX_RETRIES)
+            # No transport-level retries: _make_request() is the single retry
+            # layer. Stacking both multiplied the actual HTTP calls (and quota
+            # usage) by up to MAX_RETRIES per logical request.
+            transport=httpx.HTTPTransport(retries=0)
         )
         
         self.last_request_time = 0
@@ -69,10 +71,17 @@ class EODHDClient:
                 # Use orjson for 2-3x faster JSON parsing
                 return orjson.loads(response.content)
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 422:
-                    logger.warning(f"Invalid request (422): {url}")
+                status = e.response.status_code
+                # 4xx client errors won't change on retry. 402 (quota exceeded)
+                # especially: retrying just burns more quota and snowballs toward
+                # the daily limit. Only 5xx server errors are worth retrying.
+                if status < 500:
+                    if status == 402:
+                        logger.error(f"EODHD quota exceeded (402) — not retrying: {url}")
+                    else:
+                        logger.warning(f"Client error {status}, not retrying: {url}")
                     return None
-                logger.error(f"HTTP error (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+                logger.error(f"Server error {status} (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY)
             except Exception as e:
