@@ -97,8 +97,10 @@ deployments:
       lookback_days: 7      # re-fetch last 7 days when filling
       skip_intraday: false  # also fill intraday gaps
     schedules:
-      # Run Mon-Sat at 19:00 WIB (12:00 UTC) — after IDX close + EODHD processing delay
-      - cron: "0 12 * * 1-6"
+      # Run Mon-Sat at 20:00 WIB — after IDX close + EODHD processing delay.
+      # (was "0 12" = 12:00 WIB, which collided with daily-update and ran
+      #  mid-session before EOD data was final.)
+      - cron: "0 20 * * 1-6"
         timezone: "Asia/Jakarta"
         active: true
 
