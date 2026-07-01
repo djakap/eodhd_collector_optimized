@@ -68,6 +68,7 @@ def collect_single_stock(
     collect_actions: bool = True,
     intraday_days: int = 120,
     skip_intraday: bool = False,
+    skip_eod: bool = False,
     skip_validation: bool = True,
     update_mode: bool = False,
     update_window: int = 7,
@@ -110,7 +111,7 @@ def collect_single_stock(
                 price_stats["total_records"] = price_stats["eod_records"]
             else:
                 price_stats = price_collector.collect_all_intervals(
-                    symbol, intraday_days=intraday_days
+                    symbol, intraday_days=intraday_days, skip_eod=skip_eod
                 )
             stats["price_stats"] = price_stats
 
@@ -210,6 +211,7 @@ def daily_collection_flow(
     collect_actions: bool = True,
     intraday_days: int = 120,
     skip_intraday: bool = False,
+    skip_eod: bool = False,
     skip_validation: bool = True,
     update_mode: bool = False,
     update_window: int = 7,
@@ -267,6 +269,7 @@ def daily_collection_flow(
                 collect_actions=collect_actions,
                 intraday_days=intraday_days,
                 skip_intraday=skip_intraday,
+                skip_eod=skip_eod,
                 skip_validation=skip_validation,
                 update_mode=update_mode,
                 update_window=update_window,
@@ -355,9 +358,10 @@ def update_collection_flow(
     return daily_collection_flow(
         stocks_file=stocks_file,
         collect_price=True,
-        collect_actions=True,
+        collect_actions=False,   # div/splits now via bulk-eod flow (once daily)
         intraday_days=120,
         skip_intraday=skip_intraday,
+        skip_eod=True,           # EOD now via bulk-eod flow; intraday sweeps are intraday-only
         skip_validation=True,
         update_mode=True,
         update_window=update_window,
@@ -373,13 +377,15 @@ def update_collection_flow(
     timeout_seconds=600,
 )
 def bulk_eod_flow(exchange: str = "JK", date: Optional[str] = None,
-                  collect_eod: bool = True, collect_actions: bool = True):
+                  collect_eod: bool = True, collect_actions: bool = True,
+                  collect_wm: bool = True, stocks_file: str = "config/syariah_stocks.txt"):
     """
-    Collect last-day EOD + dividends + splits for an entire exchange via the Bulk API.
-    Each bulk request costs 100 API calls but covers all symbols, replacing per-symbol
-    EOD/div/split fetching. INACTIVE until verified — see scripts/test_bulk.py.
+    Once-daily collection replacing per-symbol EOD/div/split in the intraday sweeps:
+      - EOD daily (d), dividends, splits -> BULK (1 request each = 100 calls, whole exchange)
+      - weekly/monthly (w/m) -> per-symbol (bulk has no w/m); ~1.3k calls once/day
     """
     from collectors.bulk_collector import BulkCollector
+    from collectors.price_collector import PriceCollector
 
     logger = get_run_logger()
     setup_logging()
@@ -395,6 +401,21 @@ def bulk_eod_flow(exchange: str = "JK", date: Optional[str] = None,
             stats['splits'] = bc.collect_splits(date)
     finally:
         bc.close()
+
+    # Weekly/monthly EOD — bulk covers only daily, so fetch w/m per-symbol once/day.
+    if collect_wm:
+        stocks = load_stocks(stocks_file)
+        pc = PriceCollector(update_mode=True, skip_validation=True, skip_duplicate_check=True)
+        wm = 0
+        try:
+            for sym in stocks:
+                try:
+                    wm += pc.collect_eod_data(sym, periods=['w', 'm'])
+                except Exception as e:
+                    logger.warning(f"w/m fetch failed for {sym}: {e}")
+        finally:
+            pc.close()
+        stats['wm_records'] = wm
 
     logger.info(f"✅ Bulk done: {stats}")
     return stats

@@ -71,7 +71,7 @@ class PriceCollector:
             # leaks until GC runs, piling up in long-lived worker processes
             self.api_client.close()
     
-    def collect_eod_data(self, symbol: str, days: int = None) -> int:
+    def collect_eod_data(self, symbol: str, days: int = None, periods: List[str] = None) -> int:
         """
         Collect EOD data (1d, 1w, 1M) with update mode support
         
@@ -85,7 +85,7 @@ class PriceCollector:
         total_records = 0
         current_time = datetime.now()
         
-        for period in EOD_PERIODS:
+        for period in (periods or EOD_PERIODS):
             logger.info(f"Collecting EOD data for {symbol} (period={period})")
             
             # Determine date range based on mode
@@ -483,7 +483,7 @@ class PriceCollector:
         
         return total_records
     
-    def collect_all_intervals(self, symbol: str, intraday_days: int = INTRADAY_MAX_DAYS) -> Dict:
+    def collect_all_intervals(self, symbol: str, intraday_days: int = INTRADAY_MAX_DAYS, skip_eod: bool = False) -> Dict:
         """
         Collect all price data (EOD + Intraday)
         
@@ -506,8 +506,8 @@ class PriceCollector:
         }
         
         try:
-            # Collect EOD data (all history)
-            eod_count = self.collect_eod_data(symbol)
+            # Collect EOD data — skipped when EOD is handled by the bulk-eod flow
+            eod_count = 0 if skip_eod else self.collect_eod_data(symbol)
             stats['eod_records'] = eod_count
             
             # Collect intraday data (600 days)
