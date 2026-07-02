@@ -39,7 +39,7 @@ EXCHANGE_SUFFIX = {
 }
 
 # Data Collection Settings
-INTRADAY_INTERVALS = ['15m', '1h']  # 5m/30m dropped (unused) to cut API cost; 4h derived from 1h via utils/aggregate_4h
+INTRADAY_INTERVALS = ['5m', '15m', '1h']  # 5m re-added as base for dollar bars; 30m dropped; 4h derived from 1h via utils/aggregate_4h
 EOD_PERIODS = ['d', 'w', 'm']  # Daily, Weekly, Monthly
 
 # Historical Data Limits

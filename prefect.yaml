@@ -54,17 +54,10 @@ deployments:
       update_window: 7       # re-fetch last 7 days to catch corrections/adjustments
       skip_intraday: false   # also update intraday data
     schedules:
-      # Intraday collection — runs during IDX trading hours (WIB)
-      # 09:16, 10:16, 11:16, 14:16, 15:16, 16:16
-      - cron: "16 9,10,11,14,15,16 * * 1-5"
-        timezone: "Asia/Jakarta"
-        active: true
-      # 12:00 — before lunch break
-      - cron: "0 12 * * 1-5"
-        timezone: "Asia/Jakarta"
-        active: true
-      # 13:46 — after lunch break resumes
-      - cron: "46 13 * * 1-5"
+      # Intraday is DELAYED — EODHD publishes the day's intraday only AFTER close
+      # (verified: available by ~19:15 WIB). Daytime sweeps just re-fetch stale data,
+      # so ONE evening sweep is enough. 19:30 WIB weekday.
+      - cron: "30 19 * * 1-5"
         timezone: "Asia/Jakarta"
         active: true
 
