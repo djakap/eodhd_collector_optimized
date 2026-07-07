@@ -90,9 +90,11 @@ services:
       - worker_logs:/app/logs
       - questdb_data:/questdb-data:ro
       - ./backups:/backup
-      - ./flows:/app/flows          # live-reload flow code without rebuild
-      - ./collectors:/app/collectors
-      - ./prefect.yaml:/app/prefect.yaml
+      # Code (flows/, collectors/, prefect.yaml) is BAKED into the image via the Dockerfile
+      # COPY steps — deliberately NOT bind-mounted. Single-file bind mounts (esp.
+      # prefect.yaml) broke on WSL2/Docker restart ("mount directory onto file"), which
+      # crashed the worker on boot (exit 127) and left every deployment "Not Ready".
+      # To change flow code or schedules now: `docker compose build prefect-worker && docker compose up -d prefect-worker`.
 
 volumes:
   questdb_data:
